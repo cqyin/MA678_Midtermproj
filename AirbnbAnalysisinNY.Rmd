@@ -1,0 +1,266 @@
+---
+title: "AirBnb Analysis in New York"
+author: "Chaoqun Yin"
+date: "12/3/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pacman::p_load(ggplot2, ggrepel, ggforce, tidyr, plyr, dplyr, tm, SnowballC, wordcloud, RColorBrewer, ggmap, lme4, Matrix, knitr, sjPlot, gridExtra, scales, arm, dotwhisker, broom)
+```
+
+# 1 Abstract
+
+
+
+# 2 Introduction
+## 2.1 Background
+Several days ago when I first came to New York City for traveling, I chose Airbnb as the platform I reserved the living place. As for why to choose Airbnb, it is because that shared economy industry are changing the whole world, that is, it provides premium vacation rentals from certified owners - boutique hotels, homes, rooms, and more. Airbnb has 5+ million unique listings worldwide.
+
+However, I am also puzzled that how to choose a reasonable residence when facing thousands of residences in New York. Therefore, I will conduct a series of analysis to dig into the Airbnb residences to help me and other people that want to find a residence in Airbnb in New York make a decision to choose the proper living place.
+
+## 2.2 Previous Work
+
+
+
+# 3 Data Preparing and Modeling
+## 3.1 Data Source
+I got the data from the site tomslee.net/airbnb-data-collection-get-the-data that is public to everyone. The data contains much information about the residences on some specific days in New York. Here is the data description:
+
+* oom_id: A unique number identifying an Airbnb listing.
+
+* host_id: A unique number identifying an Airbnb host.
+
+* room_type: One of “Entire home/apt”, “Private room”, or “Shared room”
+
+* borough: A subregion of the city or search area for which the survey is carried out. The borough is taken from a shapefile of the city that is obtained independently of the Airbnb web site.
+
+* neighborhood: As with borough: a subregion of the city or search area for which the survey is carried out. 
+
+* reviews: The number of reviews that a listing has received. Airbnb has said that 70% of visits end up with a review, so the number of reviews can be used to estimate the number of visits.
+
+* overall_satisfaction: The average rating (out of five) that the listing has received from those visitors who left a review.
+
+* accommodates: The number of guests a listing can accommodate.
+
+* bedrooms: The number of bedrooms a listing offers.
+
+* price: The price (in $US) for a night stay. In early surveys, there may be some values that were recorded by month.
+
+* minstay: The minimum stay for a visit, as posted by the host.
+
+* latitude and longitude: The latitude and longitude of the listing as posted on the Airbnb site: this may be off by a few hundred metres. I do not have a way to track individual listing locations with
+
+* last_modified: the date and time that the values were read from the Airbnb web site.
+
+
+## 3.2 Overall of the data
+In this section, we will load the data and check the basic information of the data. Then we will use some visualization to show how the residences' features distribute. Based on the findings observing the visualization, we choose the proper models to conduct analysis.
+
+###Prepare the data
+During this part, I load the data and it has `r nrow(df)` rows and `r ncol(df)` columns.
+```{r}
+# read the data
+for(i in 1:12){
+  dname = paste("ny2016_", i, sep = "")
+  dfile = paste("airbnb_new_york_2016-", i, ".csv", sep = "")
+  assign(dname, read.csv(dfile, header = TRUE))
+  next
+}
+
+# add time to each dataset
+ny2016_1$Date <- as.Date("2016-1-1")
+ny2016_2$Date <- as.Date("2016-2-1")
+ny2016_3$Date <- as.Date("2016-3-1")
+ny2016_4$Date <- as.Date("2016-4-1")
+ny2016_5$Date <- as.Date("2016-5-1")
+ny2016_6$Date <- as.Date("2016-6-1")
+ny2016_7$Date <- as.Date("2016-7-1")
+ny2016_8$Date <- as.Date("2016-8-1")
+ny2016_9$Date <- as.Date("2016-9-1")
+ny2016_10$Date <- as.Date("2016-10-1")
+ny2016_11$Date <- as.Date("2016-11-1")
+ny2016_12$Date <- as.Date("2016-12-1")
+
+# merge the data
+ny <- rbind(ny2016_1, ny2016_2, ny2016_3, ny2016_4, ny2016_5, ny2016_6, 
+            ny2016_7,ny2016_8, ny2016_9, ny2016_10, ny2016_11, ny2016_12)
+# add one column to record the price per person
+ny$pricepp <- ny$price/ny$accommodates 
+
+ny %>%
+  filter(!is.na(host_id)) -> ny
+```
+
+### Data Structure
+During this part, we can check the data structure and data type of each variables using `str()`.
+```{r}
+str(ny)
+```
+
+### Data overview
+During this part, we use `summary()` to get the overview of the dataset.
+```{r}
+summary(ny)
+```
+
+We can see from the output that these variables may have correlation with the price per person of each listing: **room_type, borough, neighborhood, reviews, overall_satisfaction, accommodates, bedrooms**. We will explore the variables in the exploratory data analysis and based the outcome to help choose proper model to analyze the price per person.
+
+## 3.3 Exploratory Data Analysis
+#### The boxplot of borough and the prices
+```{r}
+ggplot(ny, aes(x=reorder(borough, price, median),y = price,group = borough, 
+                   colour = borough)) +
+  geom_boxplot() +
+  ylim(0,500) +
+  theme(text=element_text(size = 8),legend.position = "none") +
+  labs(title="Airbnb price in New York by borough", x="borough") +
+  coord_flip()
+```
+We can see from the boxplot that the median price of each borough has *obvious difference*. Manhattan borough has the highest median price rather than other borough while Bronx has the lowest median price. So we can infer from the plot that *borough* is a feature that influences the price of one property.
+
+#### Boxplot of accommodates and the prices
+```{r,warning=FALSE}
+ny %>%
+  na.omit(ny$accommodates) %>%
+ggplot(aes(x=reorder(accommodates, price, median),y = price,group = accommodates, 
+                   colour = accommodates)) +
+  geom_boxplot() +
+  ylim(0,800) +
+  theme(text=element_text(size = 8),legend.position = "none") +
+  labs(title="Airbnb price in New York by accommodates", x="accommodates") +
+  coord_flip()
+```
+
+#### Boxplot of the room types and the price
+```{r,warning=FALSE}
+ny %>%
+  na.omit(ny$room_type) %>%
+ggplot(aes(x=reorder(room_type, price, median),y = price,group = room_type, 
+                   colour = room_type)) +
+  geom_boxplot() +
+  ylim(0,500) +
+  theme(text=element_text(size = 8),legend.position = "none") +
+  labs(title="Airbnb price in New York by room type", x="room_type") +
+  coord_flip()
+```
+
+####Diagram of reviews
+```{r,warning=FALSE}
+ggplot(data = ny, aes(x = as.factor(overall_satisfaction), col = overall_satisfaction, fill = overall_satisfaction)) +
+  geom_histogram(stat = "count")
+```
+
+#### Mean prices of each month in New York
+```{r}
+#Calculate the mean of home values
+MHV <- aggregate(price ~ Date, ny, mean)
+
+# Plot it
+#Calculate the mean of home values
+MHV <- aggregate(price ~ Date, ny, mean)
+# Plot it
+ggplot(data = MHV, aes(x = Date, y = price)) +
+  geom_line(col = "orange", size = 1.5) +
+  geom_point(col = "red") +
+  labs(y = "Price", title = "Mean prices of each month in New York")+
+  theme_minimal()
+  
+```
+
+
+
+## 3.4 Model Used
+**The multilevel model is chosen to analyze the prices.**
+
+* At the very beginning, I check whether the month is a factor influencing the prices.
+```{r}
+# create the subset for modeling
+set.seed(2018)
+ny %>%
+  dplyr::select(Date, price, room_type, borough, neighborhood, accommodates, bedrooms) %>%
+  na.omit(accommodates, bedrooms, room_type, neighborhood, borough) %>%
+  sample_n(0.1 * nrow(ny))-> ny.m
+
+# Transfer the type of the Date
+#ny$Date = factor(format(Date, format = "%B"), levels = month.name)
+
+# Fit linear regression
+fit.0 <- lm(data = ny.m, price ~ Date)
+summary(fit.0)
+```
+
+* Regress **price** on **accommodates and bedrooms** and treat all other intercepts as random.
+```{r}
+fit.1 <- lmer(data = ny.m, price ~ accommodates + bedrooms + (1 | Date) + (1 | room_type) + (1 | borough), REML = FALSE)
+display(fit.1)
+```
+
+* Based on model 1, include a between-group correlation between accommodates and borough.
+```{r}
+fit.2 <- lmer(data = ny.m, price ~ accommodates + bedrooms + + (1 | Date) + (1 | room_type) + 
+                (1 + accommodates | borough), REML = FALSE)
+display(fit.2)
+```
+
+* Then, I regress price on accomodates and bedrooms while including one between-group and other random effect.
+```{r,warning=FALSE}
+fit.3 <- lmer(data = ny.m, price ~ accommodates + bedrooms + (1 | room_type) + (1 | Date) +
+                (1 + accommodates + bedrooms | borough), REML = FALSE)
+  display(fit.3)
+```
+
+
+# 4 Result
+## 4.1 Model Choice
+### Intercept plot
+```{r, message=FALSE}
+dwplot(list(fit.1, fit.2, fit.3), show_intercept = TRUE)
+```
+
+### ANOVA
+```{r,message=FALSE,warning=FALSE}
+anova(fit.1, fit.2, fit.3)
+```
+
+
+Above the 
+
+## 4.2 Interpretation
+
+
+## 4.3 Model Check
+### 
+```{r,warning=FALSE}
+library(sjPlot)
+plot_model(fit.2, type = "diag", show.values = TRUE, value.offset = .3)
+```
+
+### 
+```{r,warning=FALSE}
+plot_model(fit.2, type = "re", show.values = TRUE, value.offset = .3)
+```
+
+###
+```{r}
+plot(fit.2, ylim = c(-400,400), xlim = c(0,600))
+```
+
+# 5 Discussion
+## 5.1 Implication
+
+
+
+
+## 5.2 Limitation
+
+##5.3 Future Direction
+
+# 6 Acknowledgement
+
+
+# 7 Reference
+
+# 8 Appendix
+
